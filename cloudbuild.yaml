@@ -1,0 +1,32 @@
+# cloudbuild.yaml
+
+steps:
+# 步驟 1: 建置 Docker 容器映像檔
+# 使用 Docker 指令來建置，並用 $PROJECT_ID (這是 Cloud Build 提供的變數) 來標記映像檔
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/figma2elementor:latest', '.']
+
+# 步驟 2: 將建置好的映像檔推送到 Google Container Registry (GCR)
+# 這樣 Cloud Run 才能找得到它
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/$PROJECT_ID/figma2elementor:latest']
+
+# 步驟 3: 部署到 Google Cloud Run
+# 這是最關鍵的一步，它會告訴 Cloud Run 去抓取我們剛剛推送的最新映像檔來更新服務
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+    - 'run'
+    - 'deploy'
+    - 'figma2elementor' # 你的 Cloud Run 服務名稱
+    - '--image'
+    - 'gcr.io/$PROJECT_ID/figma2elementor:latest'
+    - '--region'
+    - 'asia-east1' # 你的服務所在的地區
+    - '--platform'
+    - 'managed'
+    - '--allow-unauthenticated'
+
+# 設定映像檔，讓部署完成後，建置好的映像檔會被儲存起來
+images:
+- 'gcr.io/$PROJECT_ID/figma2elementor:latest'
