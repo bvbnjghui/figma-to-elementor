@@ -17,15 +17,17 @@ def generate_elementor_id(length=7):
     """產生一個類似 Elementor 的隨機7位數小寫字母和數字 ID。"""
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
-# --- 核心轉換邏輯 (V6 - 參考 sample.json 結構) ---
+# --- 核心轉換邏輯 (V7 - 參照 sample.json 結構，修正 forEach 錯誤) ---
 
 def get_default_container_settings():
-    """返回一個符合 Elementor 規範的預設容器設定物件。"""
+    """返回一個更完整的、符合 Elementor 規範的預設容器設定物件。"""
     return {
         "content_width": "full",
         "container_type": "flex",
+        "flex_direction": "column",
+        "flex_justify_content": "center",
+        "flex_align_items": "center",
         "padding": {"unit": "px", "top": "20", "right": "20", "bottom": "20", "left": "20", "isLinked": True },
-        # 根據 sample.json，即使是空值也最好提供
         "background_background": "classic",
         "background_color": "#ffffff",
     }
@@ -52,6 +54,7 @@ def transform_node_to_element(node):
             "id": generate_elementor_id(),
             "elType": "container",
             "isInner": False,
+            "isLocked": False,
             "settings": get_default_container_settings(),
             "elements": elements,
         }
@@ -62,11 +65,13 @@ def transform_node_to_element(node):
             "id": generate_elementor_id(),
             "elType": "widget",
             "isInner": False,
+            "isLocked": False,
             "widgetType": "heading",
             "settings": {
                 "title": node.get('characters', '預設文字'),
                 "align": "center",
-            }
+            },
+            "elements": [],
         }
     
     # 將矩形轉換為圖片 Widget
@@ -75,13 +80,15 @@ def transform_node_to_element(node):
             "id": generate_elementor_id(),
             "elType": "widget",
             "isInner": False,
+            "isLocked": False,
             "widgetType": "image",
             "settings": {
                 "image": {
                     "url": "https://placehold.co/600x400/E2E8F0/AAAAAA?text=Image",
                     "id": ""
                 }
-            }
+            },
+            "elements": [],
         }
     
     # 如果是不支援的類型，就返回 None
@@ -93,7 +100,7 @@ def transform_node_to_element(node):
 @app.route("/")
 def index():
     """建立一個根路徑，用來確認服務是否正常運行"""
-    return "<h1>Figma-to-Elementor 轉換器已啟動！(v6)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
+    return "<h1>Figma-to-Elementor 轉換器已啟動！(v7)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
 
 @app.route("/convert", methods=['POST'])
 def handle_conversion():
