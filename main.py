@@ -17,7 +17,18 @@ def generate_elementor_id(length=7):
     """產生一個類似 Elementor 的隨機7位數小寫字母和數字 ID。"""
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
-# --- 核心轉換邏輯 (V5 - 修正 forEach 錯誤並強化 ID 生成) ---
+# --- 核心轉換邏輯 (V6 - 參考 sample.json 結構) ---
+
+def get_default_container_settings():
+    """返回一個符合 Elementor 規範的預設容器設定物件。"""
+    return {
+        "content_width": "full",
+        "container_type": "flex",
+        "padding": {"unit": "px", "top": "20", "right": "20", "bottom": "20", "left": "20", "isLinked": True },
+        # 根據 sample.json，即使是空值也最好提供
+        "background_background": "classic",
+        "background_color": "#ffffff",
+    }
 
 def transform_node_to_element(node):
     """
@@ -28,31 +39,21 @@ def transform_node_to_element(node):
         
     node_type = node.get('type')
 
-    # 將可包含子元素的容器節點轉換為 Elementor 的 Section
+    # 將 FRAME/COMPONENT/INSTANCE 轉換為 Elementor 的 Container
     if node_type in ['FRAME', 'COMPONENT', 'INSTANCE']:
-        column_elements = []
+        elements = []
         if 'children' in node:
             for child_node in node['children']:
                 child_element = transform_node_to_element(child_node)
                 if child_element:
-                    column_elements.append(child_element)
-        
-        column = {
-            "id": generate_elementor_id(),
-            "elType": "column",
-            "isInner": False,
-            "settings": {
-                "_column_size": 100, # 預設為單欄
-            },
-            "elements": column_elements,
-        }
+                    elements.append(child_element)
         
         return {
             "id": generate_elementor_id(),
-            "elType": "section",
+            "elType": "container",
             "isInner": False,
-            "settings": {},
-            "elements": [column],
+            "settings": get_default_container_settings(),
+            "elements": elements,
         }
 
     # 將文字節點轉換為 Heading Widget
@@ -64,6 +65,7 @@ def transform_node_to_element(node):
             "widgetType": "heading",
             "settings": {
                 "title": node.get('characters', '預設文字'),
+                "align": "center",
             }
         }
     
@@ -91,7 +93,7 @@ def transform_node_to_element(node):
 @app.route("/")
 def index():
     """建立一個根路徑，用來確認服務是否正常運行"""
-    return "<h1>Figma-to-Elementor 轉換器已啟動！(v5)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
+    return "<h1>Figma-to-Elementor 轉換器已啟動！(v6)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
 
 @app.route("/convert", methods=['POST'])
 def handle_conversion():
@@ -126,10 +128,11 @@ def handle_conversion():
         
         elementor_data_array = []
         if target_canvas.get('children'):
+            # 我們將 Canvas 裡面的每一個頂層 Frame 都當作一個頂層 Container
             for top_level_frame in target_canvas['children']:
-                 section = transform_node_to_element(top_level_frame)
-                 if section:
-                     elementor_data_array.append(section)
+                 container = transform_node_to_element(top_level_frame)
+                 if container:
+                     elementor_data_array.append(container)
 
         if not elementor_data_array:
              return jsonify({"error": "無法從 Figma 檔案中轉換出任何內容，檔案可能是空的。"}), 500
