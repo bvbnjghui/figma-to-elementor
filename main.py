@@ -18,7 +18,7 @@ def generate_elementor_id(length=7):
     """產生一個類似 Elementor 的隨機7位數小寫字母和數字 ID。"""
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
-# --- 核心轉換邏輯 (V3 - 解決 Elementor 500 錯誤) ---
+# --- 核心轉換邏輯 (V4 - 修正貼上功能的 JSON 格式) ---
 
 def transform_node_to_element(node):
     """
@@ -92,7 +92,7 @@ def transform_node_to_element(node):
 @app.route("/")
 def index():
     """建立一個根路徑，用來確認服務是否正常運行"""
-    return "<h1>Figma-to-Elementor 轉換器已啟動！(v3)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
+    return "<h1>Figma-to-Elementor 轉換器已啟動！(v4)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
 
 @app.route("/convert", methods=['POST'])
 def handle_conversion():
@@ -135,16 +135,9 @@ def handle_conversion():
         if not elementor_data_array:
              return jsonify({"error": "無法從 Figma 檔案中轉換出任何內容，檔案可能是空的。"}), 500
         
-        # 3. 建立符合 Elementor 匯入規範的「範本包裝」
-        final_output = {
-            "version": "0.4",
-            "title": f"Figma Import - {int(time.time())}",
-            "type": "page",
-            "data": elementor_data_array
-        }
-        
-        print("轉換成功，已產生 Elementor 範本。")
-        return jsonify(final_output)
+        # 3. 直接回傳純粹的元素陣列，以符合「貼上」功能的需求
+        print("轉換成功，已產生 Elementor 元素陣列。")
+        return jsonify(elementor_data_array)
 
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
