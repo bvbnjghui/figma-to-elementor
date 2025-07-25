@@ -16,20 +16,17 @@ def transform_node_to_element(node):
     """
     遞迴主控函式：判斷節點類型，並呼叫對應的轉換函式。
     """
+    if not node:
+        return None
+        
     node_type = node.get('type')
     element = None
 
+    # 將可包含子元素的容器節點轉換為 Elementor 的 Section
     if node_type in ['FRAME', 'COMPONENT', 'INSTANCE', 'CANVAS']:
-        # 將畫框轉換為 Elementor 的 Section
-        section = {
-            "elType": "section",
-            "elements": [],
-        }
-        # 簡易處理：為 Section 建立一個單獨的 Column
-        column = {
-            "elType": "column",
-            "elements": [],
-        }
+        section = {"elType": "section", "elements": []}
+        column = {"elType": "column", "elements": []}
+        
         if 'children' in node:
             for child_node in node['children']:
                 child_element = transform_node_to_element(child_node)
@@ -39,8 +36,8 @@ def transform_node_to_element(node):
         section['elements'].append(column)
         element = section
 
+    # 將文字節點轉換為 Heading Widget
     elif node_type == 'TEXT':
-        # 將文字節點轉換為 Heading Widget
         element = {
             "elType": "widget",
             "widgetType": "heading",
@@ -50,14 +47,13 @@ def transform_node_to_element(node):
             }
         }
     
+    # 將矩形轉換為圖片 Widget (假設它是一個圖片佔位)
     elif node_type == 'RECTANGLE':
-        # 簡易處理：將矩形轉換為圖片 Widget (假設它是一個圖片佔位)
-        # TODO: 增加偵測 Rectangle 的 fills 是否為 IMAGE 的邏輯
         element = {
             "elType": "widget",
             "widgetType": "image",
             "settings": {
-                # 這裡需要更複雜的邏輯來從 Figma API 取得圖片 URL
+                # TODO: 增加偵測 Rectangle 的 fills 是否為 IMAGE 的邏輯
                 "image": {
                     "url": "https://placehold.co/600x400/E2E8F0/AAAAAA?text=Image",
                     "id": ""
@@ -66,7 +62,7 @@ def transform_node_to_element(node):
         }
         
     if element:
-        # 為每個元素加上 ID，這是 Elementor 的要求
+        # 為每個元素加上唯一的 ID，這是 Elementor 的要求
         element['id'] = node.get('id', '')
     
     return element
@@ -84,48 +80,68 @@ def handle_conversion():
     """
     這是我們主要的 API 端點，負責接收請求並回傳轉換結果。
     """
-    if not request.is_json:
-        return jsonify({"error": "請求格式錯誤，請使用 application/json"}), 400
-
-    data = request.get_json()
-    api_token = data.get('figma_token')
-    file_key = data.get('file_key')
-
-    if not api_token or not file_key:
-        return jsonify({"error": "請求中缺少 'figma_token' 或 'file_key'"}), 400
-
-    # 1. 真實地呼叫 Figma API
-    api_url = f"https://api.figma.com/v1/files/{file_key}"
-    headers = {"X-Figma-Token": api_token}
-    
     try:
-        response = requests.get(api_url, headers=headers)
-        response.raise_for_status()  # 如果 API 回傳錯誤 (如 403, 404)，會在此拋出例外
+        if not request.is_json:
+            return jsonify({"error": "請求格式錯誤，請使用 application/json"}), 400
+
+        data = request.get_json()
+        api_token = data.get('figma_token')
+        file_key = data.get('file_key')
+
+        if not api_token or not file_key:
+            return jsonify({"error": "請求中缺少 'figma_token' 或 'file_key'"}), 400
+
+        # 1. 真實地呼叫 Figma API
+        print(f"正在呼叫 Figma API，File Key: {file_key}")
+        api_url = f"https://api.figma.com/v1/files/{file_key}"
+        headers = {"X-Figma-Token": api_token}
+        
+        response = requests.get(api_url, headers=headers, timeout=30) # 增加30秒超時
+        response.raise_for_status()  # 如果 API 回傳 4xx 或 5xx 錯誤，會在此拋出例外
+        
         figma_data = response.json()
-    except requests.exceptions.RequestException as e:
-        # 處理網路錯誤或 Figma API 的錯誤回應
-        status_code = e.response.status_code if e.response else 500
-        error_message = f"連接 Figma API 失敗: {status_code}"
-        if status_code == 403:
-            error_message = "連接 Figma API 失敗: 權限不足，請檢查你的 API Token。"
-        elif status_code == 404:
-            error_message = "連接 Figma API 失敗: 找不到檔案，請檢查你的 File Key。"
-        return jsonify({"error": error_message}), status_code
+        print("成功從 Figma API 獲取資料。")
 
-    # 2. 執行轉換
-    try:
+        # 2. 執行轉換
+        print("開始執行轉換...")
         # 我們假設要轉換的是檔案中的第一個畫布 (Canvas)
-        target_canvas = figma_data.get('document', {}).get('children', [])[0]
+        target_canvas = figma_data.get('document', {}).get('children', [{}])[0]
+        
         elementor_json = transform_node_to_element(target_canvas)
         if not elementor_json:
-             return jsonify({"error": "無法從 Figma 檔案中轉換出任何內容。"}), 500
-        # Elementor 的最終格式是一個陣列
-        final_output = [elementor_json]
-    except (IndexError, KeyError) as e:
-        return jsonify({"error": f"解析 Figma 資料結構失敗，請確認檔案內容是否正確。 Error: {e}"}), 500
+             return jsonify({"error": "無法從 Figma 檔案中轉換出任何內容，檔案可能是空的。"}), 500
+        
+        final_output = [elementor_json] # Elementor 的最終格式是一個陣列
+        print("轉換成功。")
 
-    # 3. 回傳成功的 JSON 結果
-    return jsonify(final_output)
+        # 3. 回傳成功的 JSON 結果
+        return jsonify(final_output)
+
+    except requests.exceptions.HTTPError as e:
+        # 處理 Figma API 回傳的 HTTP 錯誤 (4xx, 5xx)
+        status_code = e.response.status_code
+        error_message = f"Figma API 錯誤: {status_code}"
+        if status_code == 403:
+            error_message = "Figma API 錯誤: 權限不足，請檢查你的 API Token。"
+        elif status_code == 404:
+            error_message = "Figma API 錯誤: 找不到檔案，請檢查你的 File Key。"
+        print(f"錯誤: {error_message}")
+        return jsonify({"error": error_message}), status_code
+        
+    except requests.exceptions.RequestException as e:
+        # 處理網路連線層級的錯誤 (例如 DNS 解析失敗、超時)
+        print(f"錯誤: 無法連接到 Figma API。 {e}")
+        return jsonify({"error": f"網路錯誤: 無法連接到 Figma API。"}), 503
+
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        # 處理資料解析錯誤 (回傳的不是 JSON，或是結構不符預期)
+        print(f"錯誤: 解析 Figma 回應失敗。 {e}")
+        return jsonify({"error": "解析 Figma 資料結構失敗，請確認檔案內容是否正確或不是空的。"}), 500
+
+    except Exception as e:
+        # 處理所有其他未預期的錯誤
+        print(f"發生未預期的伺服器錯誤: {e}")
+        return jsonify({"error": "發生未預期的伺服器錯誤，請稍後再試。"}), 500
 
 
 # --- 讓服務在本機和 Cloud Run 上都能運行的設定 ---
