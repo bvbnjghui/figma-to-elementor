@@ -6,7 +6,6 @@ import requests
 import json
 import random
 import string
-import time
 
 # 建立一個 Flask 應用程式實例
 app = Flask(__name__)
@@ -18,7 +17,7 @@ def generate_elementor_id(length=7):
     """產生一個類似 Elementor 的隨機7位數小寫字母和數字 ID。"""
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
-# --- 核心轉換邏輯 (V4 - 修正貼上功能的 JSON 格式) ---
+# --- 核心轉換邏輯 (V5 - 修正 forEach 錯誤並強化 ID 生成) ---
 
 def transform_node_to_element(node):
     """
@@ -28,7 +27,6 @@ def transform_node_to_element(node):
         return None
         
     node_type = node.get('type')
-    element = None
 
     # 將可包含子元素的容器節點轉換為 Elementor 的 Section
     if node_type in ['FRAME', 'COMPONENT', 'INSTANCE']:
@@ -49,7 +47,7 @@ def transform_node_to_element(node):
             "elements": column_elements,
         }
         
-        element = {
+        return {
             "id": generate_elementor_id(),
             "elType": "section",
             "isInner": False,
@@ -59,7 +57,7 @@ def transform_node_to_element(node):
 
     # 將文字節點轉換為 Heading Widget
     elif node_type == 'TEXT':
-        element = {
+        return {
             "id": generate_elementor_id(),
             "elType": "widget",
             "isInner": False,
@@ -71,7 +69,7 @@ def transform_node_to_element(node):
     
     # 將矩形轉換為圖片 Widget
     elif node_type == 'RECTANGLE':
-        element = {
+        return {
             "id": generate_elementor_id(),
             "elType": "widget",
             "isInner": False,
@@ -84,7 +82,8 @@ def transform_node_to_element(node):
             }
         }
     
-    return element
+    # 如果是不支援的類型，就返回 None
+    return None
 
 
 # --- API 端點 (Endpoint) 的定義 ---
@@ -92,7 +91,7 @@ def transform_node_to_element(node):
 @app.route("/")
 def index():
     """建立一個根路徑，用來確認服務是否正常運行"""
-    return "<h1>Figma-to-Elementor 轉換器已啟動！(v4)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
+    return "<h1>Figma-to-Elementor 轉換器已啟動！(v5)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
 
 @app.route("/convert", methods=['POST'])
 def handle_conversion():
