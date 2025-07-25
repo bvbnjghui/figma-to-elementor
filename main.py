@@ -4,13 +4,20 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 import json
+import random
+import string
 
 # 建立一個 Flask 應用程式實例
 app = Flask(__name__)
 # 將 CORS 套用到你的 app 上，允許所有來源的請求
 CORS(app)
 
-# --- 核心轉換邏輯 (正式版本) ---
+# --- 輔助函式 ---
+def generate_elementor_id(length=7):
+    """產生一個類似 Elementor 的隨機7位數小寫字母和數字 ID。"""
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+
+# --- 核心轉換邏輯 (V2 - 更精確的 Elementor 結構) ---
 
 def transform_node_to_element(node):
     """
@@ -24,33 +31,50 @@ def transform_node_to_element(node):
 
     # 將可包含子元素的容器節點轉換為 Elementor 的 Section
     if node_type in ['FRAME', 'COMPONENT', 'INSTANCE', 'CANVAS']:
-        section = {"elType": "section", "elements": []}
-        column = {"elType": "column", "elements": []}
-        
+        # Elementor 的基本結構是 Section > Column > Widget
+        column_elements = []
         if 'children' in node:
             for child_node in node['children']:
                 child_element = transform_node_to_element(child_node)
                 if child_element:
-                    column['elements'].append(child_element)
+                    column_elements.append(child_element)
         
-        section['elements'].append(column)
-        element = section
+        # 即使沒有子元素，也需要一個空的 Column
+        column = {
+            "id": generate_elementor_id(),
+            "elType": "column",
+            "isInner": False,
+            "settings": {},
+            "elements": column_elements,
+        }
+        
+        element = {
+            "id": generate_elementor_id(),
+            "elType": "section",
+            "isInner": False,
+            "settings": {},
+            "elements": [column], # Section 的 elements 陣列裡放的是 Column
+        }
 
     # 將文字節點轉換為 Heading Widget
     elif node_type == 'TEXT':
         element = {
+            "id": generate_elementor_id(),
             "elType": "widget",
+            "isInner": False,
             "widgetType": "heading",
             "settings": {
-                "title": node.get('characters', ''),
-                # TODO: 增加顏色、字體大小等樣式轉換
+                "title": node.get('characters', '預設文字'),
+                # TODO: 增加顏色、字體大小、對齊等樣式轉換
             }
         }
     
     # 將矩形轉換為圖片 Widget (假設它是一個圖片佔位)
     elif node_type == 'RECTANGLE':
         element = {
+            "id": generate_elementor_id(),
             "elType": "widget",
+            "isInner": False,
             "widgetType": "image",
             "settings": {
                 # TODO: 增加偵測 Rectangle 的 fills 是否為 IMAGE 的邏輯
@@ -60,10 +84,6 @@ def transform_node_to_element(node):
                 }
             }
         }
-        
-    if element:
-        # 為每個元素加上唯一的 ID，這是 Elementor 的要求
-        element['id'] = node.get('id', '')
     
     return element
 
@@ -73,7 +93,7 @@ def transform_node_to_element(node):
 @app.route("/")
 def index():
     """建立一個根路徑，用來確認服務是否正常運行"""
-    return "<h1>Figma-to-Elementor 轉換器已啟動！</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
+    return "<h1>Figma-to-Elementor 轉換器已啟動！(v2)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
 
 @app.route("/convert", methods=['POST'])
 def handle_conversion():
@@ -107,15 +127,22 @@ def handle_conversion():
         # 我們假設要轉換的是檔案中的第一個畫布 (Canvas)
         target_canvas = figma_data.get('document', {}).get('children', [{}])[0]
         
-        elementor_json = transform_node_to_element(target_canvas)
-        if not elementor_json:
+        # Elementor 期望的是一個包含多個頂層 Section 的陣列
+        elementor_json_array = []
+        if target_canvas.get('children'):
+            # 我們將 Canvas 裡面的每一個頂層 Frame 都當作一個 Section
+            for top_level_frame in target_canvas['children']:
+                 section = transform_node_to_element(top_level_frame)
+                 if section:
+                     elementor_json_array.append(section)
+
+        if not elementor_json_array:
              return jsonify({"error": "無法從 Figma 檔案中轉換出任何內容，檔案可能是空的。"}), 500
         
-        final_output = [elementor_json] # Elementor 的最終格式是一個陣列
         print("轉換成功。")
 
         # 3. 回傳成功的 JSON 結果
-        return jsonify(final_output)
+        return jsonify(elementor_json_array)
 
     except requests.exceptions.HTTPError as e:
         # 處理 Figma API 回傳的 HTTP 錯誤 (4xx, 5xx)
