@@ -17,10 +17,10 @@ def generate_elementor_id(length=7):
     """產生一個類似 Elementor 的隨機7位數小寫字母和數字 ID。"""
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
-# --- 核心轉換邏輯 (V7 - 參照 sample.json 結構，修正 forEach 錯誤) ---
+# --- 核心轉換邏輯 (V8 - 最終修正版，合併為單一頂層容器) ---
 
 def get_default_container_settings():
-    """返回一個更完整的、符合 Elementor 規範的預設容器設定物件。"""
+    """返回一個符合 Elementor 規範的預設容器設定物件。"""
     return {
         "content_width": "full",
         "container_type": "flex",
@@ -29,38 +29,21 @@ def get_default_container_settings():
         "flex_align_items": "center",
         "padding": {"unit": "px", "top": "20", "right": "20", "bottom": "20", "left": "20", "isLinked": True },
         "background_background": "classic",
-        "background_color": "#ffffff",
+        "background_color": "#f1f1f1", # 使用淺灰色背景以示區別
     }
 
 def transform_node_to_element(node):
     """
     遞迴主控函式：判斷節點類型，並呼叫對應的轉換函式。
+    注意：這個函式現在只處理 Widget 層級的轉換。
     """
     if not node:
         return None
         
     node_type = node.get('type')
 
-    # 將 FRAME/COMPONENT/INSTANCE 轉換為 Elementor 的 Container
-    if node_type in ['FRAME', 'COMPONENT', 'INSTANCE']:
-        elements = []
-        if 'children' in node:
-            for child_node in node['children']:
-                child_element = transform_node_to_element(child_node)
-                if child_element:
-                    elements.append(child_element)
-        
-        return {
-            "id": generate_elementor_id(),
-            "elType": "container",
-            "isInner": False,
-            "isLocked": False,
-            "settings": get_default_container_settings(),
-            "elements": elements,
-        }
-
     # 將文字節點轉換為 Heading Widget
-    elif node_type == 'TEXT':
+    if node_type == 'TEXT':
         return {
             "id": generate_elementor_id(),
             "elType": "widget",
@@ -91,6 +74,20 @@ def transform_node_to_element(node):
             "elements": [],
         }
     
+    # 如果遇到 Frame，我們遞迴處理它的子節點，但不為它自己建立容器
+    elif node_type in ['FRAME', 'COMPONENT', 'INSTANCE']:
+        elements = []
+        if 'children' in node:
+            for child_node in node['children']:
+                child_element = transform_node_to_element(child_node)
+                if child_element:
+                    # 如果子元素是陣列（來自巢狀 Frame），就把它們展開加入
+                    if isinstance(child_element, list):
+                        elements.extend(child_element)
+                    else:
+                        elements.append(child_element)
+        return elements
+
     # 如果是不支援的類型，就返回 None
     return None
 
@@ -100,7 +97,7 @@ def transform_node_to_element(node):
 @app.route("/")
 def index():
     """建立一個根路徑，用來確認服務是否正常運行"""
-    return "<h1>Figma-to-Elementor 轉換器已啟動！(v7)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
+    return "<h1>Figma-to-Elementor 轉換器已啟動！(v8)</h1><p>請使用 POST 請求到 /convert 端點來進行轉換。</p>"
 
 @app.route("/convert", methods=['POST'])
 def handle_conversion():
@@ -133,20 +130,32 @@ def handle_conversion():
         print("開始執行轉換...")
         target_canvas = figma_data.get('document', {}).get('children', [{}])[0]
         
-        elementor_data_array = []
+        all_widgets = []
         if target_canvas.get('children'):
-            # 我們將 Canvas 裡面的每一個頂層 Frame 都當作一個頂層 Container
+            # 遍歷所有頂層 Frame，將它們的子元素（Widgets）收集起來
             for top_level_frame in target_canvas['children']:
-                 container = transform_node_to_element(top_level_frame)
-                 if container:
-                     elementor_data_array.append(container)
+                 widgets = transform_node_to_element(top_level_frame)
+                 if widgets and isinstance(widgets, list):
+                     all_widgets.extend(widgets)
 
-        if not elementor_data_array:
+        if not all_widgets:
              return jsonify({"error": "無法從 Figma 檔案中轉換出任何內容，檔案可能是空的。"}), 500
         
-        # 3. 直接回傳純粹的元素陣列，以符合「貼上」功能的需求
-        print("轉換成功，已產生 Elementor 元素陣列。")
-        return jsonify(elementor_data_array)
+        # 3. 建立一個單一的、主要的頂層容器
+        main_container = {
+            "id": generate_elementor_id(),
+            "elType": "container",
+            "isInner": False,
+            "isLocked": False,
+            "settings": get_default_container_settings(),
+            "elements": all_widgets, # 將所有收集到的 widgets 放入這個容器
+        }
+        
+        # 4. 將這個單一容器包裝在一個陣列中回傳
+        final_output = [main_container]
+        
+        print("轉換成功，已產生單一頂層容器結構。")
+        return jsonify(final_output)
 
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
